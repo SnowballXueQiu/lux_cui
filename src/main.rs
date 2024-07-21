@@ -3,7 +3,6 @@ use std::string::String;
 use std::fmt;
 
 use inquire::{Confirm, Select, Text};
-
 use crate::model::url_info::{StreamInfo, UrlInfo};
 
 mod model;
@@ -76,7 +75,7 @@ async fn main() {
             .arg("-n")
             .arg(thread_count.clone())
             .arg("-items")
-            .arg(index.to_string())
+            .arg((index + 1).to_string())
             .arg("-p")
             .arg(url.clone())
             .output()
