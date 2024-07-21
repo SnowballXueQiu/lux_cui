@@ -60,7 +60,8 @@ async fn main() {
         .prompt()
         .unwrap();
 
-    let confirmation = Confirm::new(format!("Download {} videos with a total size of {} MB? (y or n)", videos.len(), total_size / 800 / 1000).as_str())
+    let confirmation = Confirm::new(format!("Download {} videos with a total size of {} MB?", videos.len(), total_size / 800 / 1000).as_str())
+        .with_default(true)
         .prompt()
         .unwrap();
 
