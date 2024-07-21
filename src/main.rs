@@ -58,7 +58,7 @@ async fn main() {
         .prompt()
         .unwrap();
 
-    let confirmation = Confirm::new(format!("Download {} videos with a total size of {} MB?", videos.len(), total_size / 800 / 1000).as_str())
+    let confirmation = Confirm::new(format!("Download {} videos with a total size of {} MB? (y or n)", videos.len(), total_size / 800 / 1000).as_str())
         .prompt()
         .unwrap();
 
@@ -70,7 +70,7 @@ async fn main() {
     for (index, video) in videos.iter().enumerate() {
         println!("Downloading {} of {}", index + 1, videos.len());
 
-        let download = Command::new("lux")
+        let _download = Command::new("lux")
             .arg("-f")
             .arg(video.clone().id)
             .arg("-n")
