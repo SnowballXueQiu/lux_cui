@@ -1,8 +1,8 @@
 use std::process::{Command, exit};
 use std::string::String;
 use std::fmt;
-
 use inquire::{Confirm, Select, Text};
+use tokio::sync::mpsc::{self, Sender, Receiver};
 use crate::model::url_info::{StreamInfo, UrlInfo};
 
 mod model;
@@ -17,7 +17,7 @@ impl fmt::Display for StreamInfo {
 async fn main() {
     let url = Text::new("The video's URL or BV Code:")
         .prompt()
-        .expect("URl or BV Code is required");
+        .expect("URL or BV Code is required");
 
     let output = Command::new("lux")
         .arg("-j")
@@ -25,10 +25,13 @@ async fn main() {
         .output()
         .expect("Failed to execute command");
 
-    let Ok(info): Result<Vec<UrlInfo>, serde_json::Error> = serde_json::from_slice(&output.stdout) else {
-        println!("Error getting info");
-        println!("{}", String::from_utf8_lossy(&output.stdout));
-        exit(1);
+    let info: Vec<UrlInfo> = match serde_json::from_slice(&output.stdout) {
+        Ok(info) => info,
+        Err(_) => {
+            println!("Error getting info");
+            println!("{}", String::from_utf8_lossy(&output.stdout));
+            exit(1);
+        }
     };
 
     let mut videos = Vec::new();
@@ -49,7 +52,7 @@ async fn main() {
             .unwrap();
 
         total_size += selected.size;
-        videos.push(selected);
+        videos.push((selected, av.title.clone()));
     }
 
     let thread_count = Text::new("Thread count:")
@@ -66,19 +69,85 @@ async fn main() {
         exit(0);
     }
 
-    for (index, video) in videos.iter().enumerate() {
-        println!("Downloading {} of {}", index + 1, videos.len());
+    let (log_tx, log_rx) = mpsc::channel::<String>(100);
 
-        let _download = Command::new("lux")
+    let download_handle = tokio::spawn(download_videos(videos, url.clone(), thread_count, log_tx.clone()));
+    let log_handle = tokio::spawn(log_thread(log_rx));
+
+    if let Err(e) = download_handle.await {
+        eprintln!("Error in download handle: {:?}", e);
+    }
+
+    if let Err(e) = log_handle.await {
+        eprintln!("Error in log handle: {:?}", e);
+    }
+}
+
+async fn download_videos(videos: Vec<(StreamInfo, String)>, url: String, thread_count: String, log_tx: Sender<String>) {
+    for (index, (video, title)) in videos.iter().enumerate() {
+        let message = format!("Downloading {} of {}: \"{}\"", index + 1, videos.len(), title);
+        if let Err(e) = log_tx.send(message).await {
+            eprintln!("Error sending log message: {:?}", e);
+            return;
+        }
+
+        let output = Command::new("lux")
             .arg("-f")
-            .arg(video.clone().id)
+            .arg(video.id.clone())
             .arg("-n")
             .arg(thread_count.clone())
             .arg("-items")
             .arg((index + 1).to_string())
             .arg("-p")
             .arg(url.clone())
-            .output()
-            .expect("Failed to execute command");
+            .output();
+
+        match output {
+            Ok(output) => {
+                if !output.status.success() {
+                    let error_message = format!(
+                        "Error during download of \"{}\": {}",
+                        title,
+                        String::from_utf8_lossy(&output.stderr)
+                    );
+                    if let Err(e) = log_tx.send(error_message).await {
+                        eprintln!("Error sending log message: {:?}", e);
+                    }
+                } else {
+                    let success_message = format!("Download completed for video {}: \"{}\"", index + 1, title);
+                    if let Err(e) = log_tx.send(success_message).await {
+                        eprintln!("Error sending log message: {:?}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                let error_message = format!("Failed to execute command for \"{}\": {:?}", title, e);
+                if let Err(e) = log_tx.send(error_message).await {
+                    eprintln!("Error sending log message: {:?}", e);
+                }
+            }
+        }
+    }
+
+    // Send a message indicating that all downloads are complete
+    if let Err(e) = log_tx.send("ALL_DOWNLOADS_COMPLETE".to_string()).await {
+        eprintln!("Error sending completion message: {:?}", e);
+    }
+}
+
+async fn log_thread(mut log_rx: Receiver<String>) {
+    while let Some(message) = log_rx.recv().await {
+        if message == "ALL_DOWNLOADS_COMPLETE" {
+            println!(
+                "\
+                ----------------------------------------\n\
+                All downloads completed\n\
+                ----------------------------------------\n\
+                Exiting...\
+                "
+            );
+            break;
+        }
+        println!("{}", message);
     }
 }
