@@ -15,12 +15,16 @@ impl fmt::Display for StreamInfo {
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 3)]
 async fn main() {
+
+    std::fs::create_dir_all("outputs").expect("Failed to create downloads directory");
+
     let url = Text::new("The video's URL or BV Code:")
         .prompt()
         .expect("URL or BV Code is required");
 
     let output = Command::new("lux")
         .arg("-j")
+        .arg("-p")
         .arg(url.clone())
         .output()
         .expect("Failed to execute command");
@@ -99,6 +103,8 @@ async fn download_videos(videos: Vec<(StreamInfo, String)>, url: String, thread_
             .arg(thread_count.clone())
             .arg("-items")
             .arg((index + 1).to_string())
+            .arg("-o")
+            .arg("./outputs/")
             .arg("-p")
             .arg(url.clone())
             .output();
@@ -130,7 +136,6 @@ async fn download_videos(videos: Vec<(StreamInfo, String)>, url: String, thread_
         }
     }
 
-    // Send a message indicating that all downloads are complete
     if let Err(e) = log_tx.send("ALL_DOWNLOADS_COMPLETE".to_string()).await {
         eprintln!("Error sending completion message: {:?}", e);
     }
